@@ -1,0 +1,13 @@
+# Node.js
+node_modules/
+
+# Stream Deck build output
+*.sdPlugin/bin/
+*.sdPlugin/logs/
+
+# Release artefacts
+*.streamDeckPlugin
+
+# OS
+.DS_Store
+Thumbs.db
