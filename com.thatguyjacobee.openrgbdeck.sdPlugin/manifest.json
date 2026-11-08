@@ -1,0 +1,80 @@
+{
+    "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+    "UUID": "com.thatguyjacobee.openrgbdeck",
+    "Name": "OpenRGB Deck",
+    "Version": "0.1.0.0",
+    "SDKVersion": 3,
+    "Author": "ThatGuyJacobee",
+    "Description": "OpenRGB profile control for Elgato Stream Deck - unofficial, free and open source",
+    "Category": "OpenRGB Deck",
+    "CategoryIcon": "imgs/plugin/category-icon",
+    "Icon": "imgs/plugin/icon",
+    "URL": "https://github.com/ThatGuyJacobee/OpenRGB-Deck",
+    "SupportURL": "https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues",
+    "CodePath": "bin/plugin.js",
+    "Nodejs": {
+        "Version": "24"
+    },
+    "Software": {
+        "MinimumVersion": "7.1"
+    },
+    "OS": [
+        {
+            "Platform": "windows",
+            "MinimumVersion": "10"
+        },
+        {
+            "Platform": "mac",
+            "MinimumVersion": "12"
+        }
+    ],
+    "Actions": [
+        {
+            "Name": "Set OpenRGB Profile",
+            "UUID": "com.thatguyjacobee.openrgbdeck.set-profile",
+            "Icon": "imgs/actions/set-profile/icon",
+            "Tooltip": "Loads the selected OpenRGB profile when pressed.",
+            "Controllers": ["Keypad"],
+            "DisableAutomaticStates": true,
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "States": [
+                {
+                    "Image": "imgs/actions/set-profile/key",
+                    "TitleAlignment": "middle"
+                }
+            ]
+        },
+        {
+            "Name": "OpenRGB Profile",
+            "UUID": "com.thatguyjacobee.openrgbdeck.profile",
+            "Icon": "imgs/actions/profile-status/icon",
+            "Tooltip": "Shows the active OpenRGB profile. Press to load the next profile.",
+            "Controllers": ["Keypad"],
+            "DisableAutomaticStates": true,
+            "UserTitleEnabled": false,
+            "States": [
+                {
+                    "Image": "imgs/actions/profile-status/key",
+                    "TitleAlignment": "middle"
+                }
+            ]
+        },
+        {
+            "Name": "Set OpenRGB Colour",
+            "UUID": "com.thatguyjacobee.openrgbdeck.set-colour",
+            "Icon": "imgs/actions/set-colour/icon",
+            "Tooltip": "Sets the selected OpenRGB devices to a fixed colour when pressed.",
+            "Controllers": ["Keypad"],
+            "DisableAutomaticStates": true,
+            "UserTitleEnabled": false,
+            "SupportedInMultiActions": true,
+            "States": [
+                {
+                    "Image": "imgs/actions/set-colour/key",
+                    "TitleAlignment": "middle"
+                }
+            ]
+        }
+    ]
+}
