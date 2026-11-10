@@ -21,7 +21,9 @@
         "build": "node scripts/icons.mjs && rollup -c",
         "watch": "node scripts/icons.mjs && rollup -c -w --watch.onEnd=\"streamdeck restart com.thatguyjacobee.openrgbdeck\"",
         "typecheck": "tsc --noEmit",
-        "lint": "eslint src --max-warnings 0",
+        "lint": "eslint src test --max-warnings 0",
+        "test": "vitest run",
+        "test:watch": "vitest",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "icons": "node scripts/icons.mjs",
@@ -46,8 +48,10 @@
         "rollup": "^4.0.2",
         "sharp": "^0.35.5",
         "tslib": "^2.6.2",
+        "tsx": "^4.23.15",
         "typescript": "^5.9.3",
-        "typescript-eslint": "^8.32.0"
+        "typescript-eslint": "^8.32.0",
+        "vitest": "^5.1.0"
     },
     "dependencies": {
         "@elgato/streamdeck": "^3.0.4"
