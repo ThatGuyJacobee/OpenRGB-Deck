@@ -27,6 +27,24 @@ export interface FakeServerOptions {
 
 	/** Reply to the client flags packet. */
 	replyToFlags?: boolean;
+
+	/** Profiles returned by the profile list request. */
+	profiles?: string[];
+
+	/** Active profile returned by the active profile request. */
+	activeProfile?: string;
+
+	/** Status returned when a profile is loaded. */
+	loadProfileStatus?: number;
+
+	/** Reply to the profile list request. */
+	replyToProfileList?: boolean;
+
+	/** Reply to the active profile request. */
+	replyToActiveProfile?: boolean;
+
+	/** Reply to profile load requests. */
+	replyToLoadProfile?: boolean;
 }
 
 /** A packet received from a client. */
@@ -78,6 +96,9 @@ export class FakeServer {
 	/** Sockets currently being drained of queued writes. */
 	readonly #draining = new Set<Socket>();
 
+	/** Most recent profile name sent in packet 152. */
+	#loadedProfile = "";
+
 	/** Normalised server behaviour. */
 	readonly #options: Required<FakeServerOptions>;
 
@@ -99,11 +120,17 @@ export class FakeServer {
 	 */
 	private constructor(options: FakeServerOptions) {
 		this.#options = {
+			activeProfile: "Fake Profile",
 			coalesceHandshake: false,
 			fragmentResponses: false,
+			loadProfileStatus: 0,
 			port: 0,
+			profiles: ["Fake Profile"],
 			protocolVersion: PROTOCOL_VERSION,
+			replyToActiveProfile: true,
 			replyToFlags: true,
+			replyToLoadProfile: true,
+			replyToProfileList: true,
 			replyToVersion: true,
 			serverFlags: 127,
 			serverName: "Fake OpenRGB",
@@ -126,6 +153,11 @@ export class FakeServer {
 	/** Total number of client connections accepted. */
 	public get connections(): number {
 		return this.#connections;
+	}
+
+	/** Most recent profile name sent in packet 152. */
+	public get loadedProfile(): string {
+		return this.#loadedProfile;
 	}
 
 	/** TCP port the server is listening on. */
@@ -179,6 +211,32 @@ export class FakeServer {
 		}
 
 		this.#sockets.clear();
+	}
+
+	/**
+	 * Sends an active-profile change to every client.
+	 * @param profile New active profile.
+	 */
+	public sendActiveProfile(profile: string): void {
+		this.sendPacket(PacketId.ProfileActiveChanged, cstring(profile));
+	}
+
+	/**
+	 * Sends a packet to every active client.
+	 * @param packetId Packet identifier.
+	 * @param payload Packet body.
+	 * @param deviceId Device identifier.
+	 */
+	public sendPacket(packetId: number, payload: Buffer = Buffer.alloc(0), deviceId = 0): void {
+		this.sendRaw(encodeFrame(deviceId, packetId, payload));
+	}
+
+	/**
+	 * Sends a profile-list change to every client.
+	 * @param profiles New profile list.
+	 */
+	public sendProfileList(profiles: readonly string[]): void {
+		this.sendPacket(PacketId.ProfileListUpdated, profileListPayload(profiles));
 	}
 
 	/**
@@ -316,6 +374,9 @@ export class FakeServer {
 	 * @param frame Received packet.
 	 */
 	#handlePacket(socket: Socket, frame: Frame): void {
+		let ackStatus = 0;
+		let sendAck = true;
+
 		switch (frame.packetId) {
 			case PacketId.RequestProtocolVersion:
 				if (this.#options.replyToVersion) {
@@ -346,14 +407,44 @@ export class FakeServer {
 				}
 				break;
 
+			case PacketId.ProfileGetList:
+				if (this.#options.replyToProfileList) {
+					this.#write(
+						socket,
+						encodeFrame(0, PacketId.ProfileGetList, profileListPayload(this.#options.profiles)),
+					);
+				}
+				break;
+
+			case PacketId.ProfileGetActive:
+				if (this.#options.replyToActiveProfile) {
+					this.#write(
+						socket,
+						encodeFrame(0, PacketId.ProfileGetActive, cstring(this.#options.activeProfile)),
+					);
+				}
+				break;
+
+			case PacketId.ProfileLoad:
+				this.#loadedProfile = readCString(frame.payload);
+
+				if (this.#options.replyToLoadProfile) {
+					ackStatus = this.#options.loadProfileStatus;
+				} else {
+					sendAck = false;
+				}
+				break;
+
 			default:
 				break;
 		}
 
-		this.#write(
-			socket,
-			encodeFrame(frame.deviceId, PacketId.Ack, Buffer.concat([uint32(frame.packetId), uint32(0)])),
-		);
+		if (sendAck) {
+			this.#write(
+				socket,
+				encodeFrame(frame.deviceId, PacketId.Ack, Buffer.concat([uint32(frame.packetId), uint32(ackStatus)])),
+			);
+		}
 	}
 
 	/**
@@ -451,4 +542,35 @@ function readCString(payload: Buffer): string {
 	const end = payload.indexOf(0);
 
 	return payload.toString("utf8", 0, end === -1 ? payload.length : end);
+}
+
+/**
+ * Encodes a profile-list payload.
+ * @param profiles Profile names.
+ * @returns The size-prefixed body used by packets 150 and 160.
+ */
+function profileListPayload(profiles: readonly string[]): Buffer {
+	const parts: Buffer[] = [uint16(profiles.length)];
+
+	for (const profile of profiles) {
+		const name = cstring(profile);
+
+		parts.push(uint16(name.length), name);
+	}
+
+	const data = Buffer.concat(parts);
+
+	return Buffer.concat([uint32(data.length + 4), data]);
+}
+
+/**
+ * Encodes an unsigned 16-bit integer in little-endian order.
+ * @param value Value to encode.
+ * @returns Two bytes.
+ */
+function uint16(value: number): Buffer {
+	const buffer = Buffer.allocUnsafe(2);
+	buffer.writeUInt16LE(value, 0);
+
+	return buffer;
 }

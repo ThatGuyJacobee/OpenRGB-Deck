@@ -202,6 +202,156 @@ describe("reconnect", () => {
 	});
 });
 
+describe("profiles", () => {
+	it("lists profiles and reports the active profile", async () => {
+		const server = await startServer({ activeProfile: "Gaming", profiles: ["Gaming", "Żółw 🎮"] });
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+
+		await expect(client.listProfiles()).resolves.toEqual(["Gaming", "Żółw 🎮"]);
+		await expect(client.getActiveProfile()).resolves.toBe("Gaming");
+		expect(client.profiles).toEqual(["Gaming", "Żółw 🎮"]);
+		expect(client.activeProfile).toBe("Gaming");
+	});
+
+	it("returns null when no profile is active", async () => {
+		const server = await startServer({ activeProfile: "" });
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+
+		await expect(client.getActiveProfile()).resolves.toBeNull();
+		expect(client.activeProfile).toBeNull();
+	});
+
+	it("loads a profile by name", async () => {
+		const server = await startServer();
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+
+		await client.loadProfile("Żółw 🎮");
+		expect(server.loadedProfile).toBe("Żółw 🎮");
+	});
+
+	it("rejects when the server rejects a profile load", async () => {
+		const server = await startServer({ loadProfileStatus: 5 });
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+
+		await expect(client.loadProfile("Missing")).rejects.toMatchObject({
+			code: "REQUEST_FAILED",
+			status: 5,
+		});
+	});
+
+	it("times out a profile load", async () => {
+		const server = await startServer({ replyToLoadProfile: false });
+		const client = createClient(server, { loadProfileTimeoutMs: 40 });
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+
+		await expect(client.loadProfile("Slow")).rejects.toMatchObject({ code: "REQUEST_TIMEOUT" });
+	});
+
+	it("acknowledges a profile-about-to-load packet", async () => {
+		const server = await startServer();
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		server.sendPacket(PacketId.ProfileAboutToLoad);
+
+		await vi.waitFor(() => {
+			const replies = server.received.filter((packet) => packet.packetId === PacketId.ProfileAboutToLoad);
+
+			expect(replies).toHaveLength(1);
+			expect(replies[0]?.payload).toHaveLength(0);
+		}, WAIT);
+	});
+
+	it("updates the active profile from a push", async () => {
+		const server = await startServer();
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+
+		const changed = new Promise<string | null>((resolve) => {
+			client.once("activeProfile", resolve);
+		});
+
+		server.sendActiveProfile("Gaming");
+
+		expect(await changed).toBe("Gaming");
+		expect(client.activeProfile).toBe("Gaming");
+	});
+
+	it("updates the profile list from a push", async () => {
+		const server = await startServer();
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+
+		const changed = new Promise<string[]>((resolve) => {
+			client.once("profiles", resolve);
+		});
+
+		server.sendProfileList(["Movies", "Gaming"]);
+
+		expect(await changed).toEqual(["Movies", "Gaming"]);
+		expect(client.profiles).toEqual(["Movies", "Gaming"]);
+	});
+
+	it("rejects profile requests when disconnected", async () => {
+		const server = await startServer();
+		const client = createClient(server);
+
+		await expect(client.listProfiles()).rejects.toMatchObject({ code: "CONNECTION_CLOSED" });
+		await expect(client.getActiveProfile()).rejects.toMatchObject({ code: "CONNECTION_CLOSED" });
+		await expect(client.loadProfile("Gaming")).rejects.toMatchObject({ code: "CONNECTION_CLOSED" });
+	});
+
+	it("resyncs profiles after reconnecting", async () => {
+		const server = await startServer({ activeProfile: "A", profiles: ["A", "B"] });
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		await vi.waitFor(() => expect(client.profiles).toEqual(["A", "B"]), WAIT);
+
+		const before = server.received.filter((packet) => packet.packetId === PacketId.ProfileGetList).length;
+
+		server.dropConnections();
+
+		await vi.waitFor(() => expect(server.connections).toBe(2), WAIT);
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		await vi.waitFor(() => {
+			const after = server.received.filter((packet) => packet.packetId === PacketId.ProfileGetList).length;
+
+			expect(after).toBeGreaterThan(before);
+		}, WAIT);
+		expect(client.activeProfile).toBe("A");
+	});
+});
+
 describe("malformed input", () => {
 	it("rejects invalid packet magic and reconnects", async () => {
 		const server = await startServer();
