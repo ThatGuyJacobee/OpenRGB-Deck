@@ -122,4 +122,39 @@ export interface OpenRgbClientOptions {
 /**
  * Connection state of an OpenRGB client.
  */
-export type OpenRgbConnectionState = "connected" | "connecting" | "handshaking" | "idle" | "reconnecting" | "stopped";
+export type OpenRgbConnectionState =
+	"connected" | "connecting" | "failed" | "handshaking" | "idle" | "reconnecting" | "stopped";
+
+/**
+ * Details emitted when a client finishes its handshake.
+ */
+export interface OpenRgbConnectedEvent {
+	/** Name reported by the OpenRGB server. */
+	serverName: string;
+
+	/** Negotiated protocol version. */
+	protocolVersion: number;
+
+	/** Capability flags reported by the server. */
+	serverFlags: number;
+}
+
+/**
+ * Events emitted by an OpenRGB client.
+ */
+export type OpenRgbEventMap = {
+	/** The handshake completed and the connection is usable. */
+	connected: [event: OpenRgbConnectedEvent];
+
+	/** The connection closed; a reconnect may follow. */
+	disconnected: [reason: string];
+
+	/** A connection, handshake or protocol error occurred. */
+	error: [error: OpenRgbError];
+
+	/** The server reported a new name. */
+	serverName: [serverName: string];
+
+	/** The connection state changed. */
+	stateChanged: [state: OpenRgbConnectionState];
+};
