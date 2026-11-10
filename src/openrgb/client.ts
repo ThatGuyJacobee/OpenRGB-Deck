@@ -16,7 +16,9 @@ import {
 	PacketStatus,
 	PacketWriter,
 	parseAck,
+	parseActiveProfile,
 	parseCString,
+	parseProfileList,
 	parseUint32,
 	PROTOCOL_VERSION,
 } from "./protocol";
@@ -29,8 +31,11 @@ import {
 	type OpenRgbLogger,
 } from "./types";
 
-/** Default timeout for handshake requests, in milliseconds. */
+/** Default timeout for handshake and profile-list requests, in milliseconds. */
 const DEFAULT_REQUEST_TIMEOUT_MS = 2000;
+
+/** Default timeout for profile loads, in milliseconds. */
+const DEFAULT_LOAD_PROFILE_TIMEOUT_MS = 10000;
 
 /** Default reconnect delays, in milliseconds; the last value repeats. */
 const DEFAULT_RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000] as const;
@@ -61,6 +66,9 @@ interface PendingRequest {
 
 	/** Timer that rejects the request when it expires. */
 	timer: NodeJS.Timeout;
+
+	/** Promise returned to the caller, reused for duplicate read requests. */
+	promise: Promise<Buffer>;
 }
 
 /**
@@ -70,6 +78,9 @@ interface PendingRequest {
  * reconnects with backoff when the connection drops.
  */
 export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
+	/** Currently active profile, or null when none is active. */
+	#activeProfile: string | null = null;
+
 	/** Bytes received but not yet parsed. */
 	#buffer: Buffer = Buffer.alloc(0);
 
@@ -81,6 +92,9 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 
 	/** Hostname or IP address of the server. */
 	readonly #host: string;
+
+	/** Timeout for profile loads, in milliseconds. */
+	readonly #loadProfileTimeoutMs: number;
 
 	/** Diagnostic logger. */
 	readonly #logger: OpenRgbLogger;
@@ -94,6 +108,9 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	/** TCP port of the server. */
 	readonly #port: number;
 
+	/** Profiles reported by the server. */
+	#profiles: string[] = [];
+
 	/** Negotiated protocol version. */
 	#protocolVersion = 0;
 
@@ -106,7 +123,7 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	/** Pending reconnect timer. */
 	#reconnectTimer: NodeJS.Timeout | undefined;
 
-	/** Timeout for handshake requests, in milliseconds. */
+	/** Timeout for handshake and profile-list requests, in milliseconds. */
 	readonly #requestTimeoutMs: number;
 
 	/** Capability flags reported by the server. */
@@ -135,6 +152,7 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 		this.#port = options.port ?? DEFAULT_PORT;
 		this.#clientName = options.clientName ?? DEFAULT_CLIENT_NAME;
 		this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+		this.#loadProfileTimeoutMs = options.loadProfileTimeoutMs ?? DEFAULT_LOAD_PROFILE_TIMEOUT_MS;
 		this.#reconnectDelaysMs = options.reconnectDelaysMs ?? DEFAULT_RECONNECT_DELAYS_MS;
 		this.#maxPacketSize = options.maxPacketSize ?? MAX_PACKET_SIZE;
 		this.#logger = options.logger ?? NOOP_LOGGER;
@@ -144,9 +162,19 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 		}
 	}
 
+	/** Currently active profile, or null when none is active. */
+	public get activeProfile(): string | null {
+		return this.#activeProfile;
+	}
+
 	/** Whether the handshake has completed and the connection is usable. */
 	public get connected(): boolean {
 		return this.#state === "connected";
+	}
+
+	/** Profiles reported by the server. */
+	public get profiles(): readonly string[] {
+		return this.#profiles;
 	}
 
 	/** Negotiated protocol version, or zero before the handshake. */
@@ -167,6 +195,65 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	/** Current connection state. */
 	public get state(): OpenRgbConnectionState {
 		return this.#state;
+	}
+
+	/**
+	 * Requests the active profile from the server.
+	 * @returns The profile name, or null when no profile is active.
+	 */
+	public async getActiveProfile(): Promise<string | null> {
+		const payload = await this.#requestOnConnection(
+			0,
+			PacketId.ProfileGetActive,
+			PacketId.ProfileGetActive,
+			EMPTY_PAYLOAD,
+			this.#requestTimeoutMs,
+		);
+		const profile = parseActiveProfile(payload);
+
+		this.#setActiveProfile(profile);
+
+		return profile;
+	}
+
+	/**
+	 * Requests the profile list from the server.
+	 * @returns Profile names in server order.
+	 */
+	public async listProfiles(): Promise<string[]> {
+		const payload = await this.#requestOnConnection(
+			0,
+			PacketId.ProfileGetList,
+			PacketId.ProfileGetList,
+			EMPTY_PAYLOAD,
+			this.#requestTimeoutMs,
+		);
+		const profiles = parseProfileList(payload);
+
+		this.#setProfiles(profiles);
+
+		return profiles;
+	}
+
+	/**
+	 * Loads an OpenRGB profile.
+	 *
+	 * Resolves when the server acknowledges the request; the active-profile
+	 * event follows once the profile has finished loading.
+	 * @param name Profile name to load.
+	 */
+	public async loadProfile(name: string): Promise<void> {
+		if (name.length === 0) {
+			throw new OpenRgbError("REQUEST_FAILED", "Profile name cannot be empty.");
+		}
+
+		await this.#requestOnConnection(
+			0,
+			PacketId.ProfileLoad,
+			undefined,
+			new PacketWriter().cstring(name).toBuffer(),
+			this.#loadProfileTimeoutMs,
+		);
 	}
 
 	/**
@@ -340,6 +427,7 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 				protocolVersion: this.#protocolVersion,
 				serverFlags: this.#serverFlags,
 			});
+			void this.#refreshProfileState();
 		} catch (error) {
 			if (socket !== this.#socket || generation !== this.#generation) {
 				return;
@@ -403,6 +491,22 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	}
 
 	/**
+	 * Refreshes the cached profile list and active profile after connecting.
+	 */
+	async #refreshProfileState(): Promise<void> {
+		try {
+			await this.listProfiles();
+			await this.getActiveProfile();
+		} catch (error) {
+			if (this.#state !== "connected") {
+				return;
+			}
+
+			this.#logger.warn(`Could not refresh OpenRGB profiles: ${toOpenRgbError(error).message}`);
+		}
+	}
+
+	/**
 	 * Routes a complete packet to its request or push handler.
 	 * @param header Packet header.
 	 * @param payload Packet body.
@@ -419,6 +523,26 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 			this.#serverName = serverName;
 			this.emit("serverName", serverName);
 
+			return;
+		}
+
+		if (header.packetId === PacketId.ProfileAboutToLoad) {
+			const socket = this.#socket;
+
+			if (socket !== undefined) {
+				this.#send(socket, 0, PacketId.ProfileAboutToLoad, EMPTY_PAYLOAD);
+			}
+
+			return;
+		}
+
+		if (header.packetId === PacketId.ProfileActiveChanged) {
+			this.#setActiveProfile(parseActiveProfile(payload));
+			return;
+		}
+
+		if (header.packetId === PacketId.ProfileListUpdated) {
+			this.#setProfiles(parseProfileList(payload));
 			return;
 		}
 
@@ -527,39 +651,77 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 		}
 
 		const key = expectedPacketId === undefined ? `ack:${deviceId}:${packetId}` : `${deviceId}:${expectedPacketId}`;
+		const existing = this.#pending.get(key);
 
-		if (this.#pending.has(key)) {
+		if (existing !== undefined) {
+			if (expectedPacketId !== undefined) {
+				return existing.promise;
+			}
+
 			return Promise.reject(
 				new OpenRgbError("REQUEST_FAILED", `A request for packet ${packetId} is already in flight.`),
 			);
 		}
 
-		return new Promise<Buffer>((resolve, reject) => {
-			const timer = setTimeout(() => {
-				this.#settle(key)?.reject(
-					new OpenRgbError(
-						"REQUEST_TIMEOUT",
-						`OpenRGB did not answer packet ${packetId} within ${timeoutMs} ms.`,
-					),
-				);
-			}, timeoutMs);
+		let resolveRequest!: (payload: Buffer) => void;
+		let rejectRequest!: (error: OpenRgbError) => void;
 
-			this.#pending.set(key, {
-				deviceId,
-				expectedPacketId,
-				key,
-				packetId,
-				reject,
-				resolve,
-				timer,
-			});
-
-			try {
-				this.#send(socket, deviceId, packetId, payload);
-			} catch (error) {
-				this.#settle(key)?.reject(toOpenRgbError(error));
-			}
+		const promise = new Promise<Buffer>((resolve, reject) => {
+			resolveRequest = resolve;
+			rejectRequest = reject;
 		});
+		const timer = setTimeout(() => {
+			this.#settle(key)?.reject(
+				new OpenRgbError(
+					"REQUEST_TIMEOUT",
+					`OpenRGB did not answer packet ${packetId} within ${timeoutMs} ms.`,
+				),
+			);
+		}, timeoutMs);
+
+		this.#pending.set(key, {
+			deviceId,
+			expectedPacketId,
+			key,
+			packetId,
+			promise,
+			reject: rejectRequest,
+			resolve: resolveRequest,
+			timer,
+		});
+
+		try {
+			this.#send(socket, deviceId, packetId, payload);
+		} catch (error) {
+			this.#settle(key)?.reject(toOpenRgbError(error));
+		}
+
+		return promise;
+	}
+
+	/**
+	 * Sends a request on the active connection.
+	 * @param deviceId Device identifier.
+	 * @param packetId Packet identifier to send.
+	 * @param expectedPacketId Expected payload identifier, or undefined for an ACK-only request.
+	 * @param payload Packet body.
+	 * @param timeoutMs Request timeout.
+	 * @returns The response payload, or an empty buffer for an ACK-only request.
+	 */
+	#requestOnConnection(
+		deviceId: number,
+		packetId: number,
+		expectedPacketId: number | undefined,
+		payload: Buffer,
+		timeoutMs: number,
+	): Promise<Buffer> {
+		const socket = this.#socket;
+
+		if (socket === undefined || this.#state !== "connected") {
+			return Promise.reject(new OpenRgbError("CONNECTION_CLOSED", "The OpenRGB client is not connected."));
+		}
+
+		return this.#request(socket, this.#generation, deviceId, packetId, expectedPacketId, payload, timeoutMs);
 	}
 
 	/**
@@ -609,6 +771,35 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 			this.#reconnectTimer = undefined;
 			this.#connect();
 		}, delay);
+	}
+
+	/**
+	 * Updates the cached active profile and notifies listeners.
+	 * @param profile Active profile, or null.
+	 */
+	#setActiveProfile(profile: string | null): void {
+		if (this.#activeProfile === profile) {
+			return;
+		}
+
+		this.#activeProfile = profile;
+		this.emit("activeProfile", profile);
+	}
+
+	/**
+	 * Updates the cached profile list and notifies listeners.
+	 * @param profiles Profile names.
+	 */
+	#setProfiles(profiles: string[]): void {
+		if (
+			this.#profiles.length === profiles.length &&
+			this.#profiles.every((profile, index) => profile === profiles[index])
+		) {
+			return;
+		}
+
+		this.#profiles = [...profiles];
+		this.emit("profiles", [...this.#profiles]);
 	}
 
 	/**

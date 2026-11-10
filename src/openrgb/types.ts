@@ -155,6 +155,12 @@ export type OpenRgbEventMap = {
 	/** The server reported a new name. */
 	serverName: [serverName: string];
 
+	/** The active profile changed. */
+	activeProfile: [profile: string | null];
+
+	/** The profile list changed. */
+	profiles: [profiles: string[]];
+
 	/** The connection state changed. */
 	stateChanged: [state: OpenRgbConnectionState];
 };
