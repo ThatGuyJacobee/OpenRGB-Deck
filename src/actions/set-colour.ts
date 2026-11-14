@@ -138,7 +138,8 @@ export class SetColour extends SingletonAction<SetColourSettings> {
 	async #updateKey(key: KeyAction<SetColourSettings>, settings: SetColourSettings): Promise<void> {
 		const colour = parseColour(settings.colour) ?? DEFAULT_RGB;
 
-		await key.setTitle("");
+		// Defer to the title set by the user in Stream Deck.
+		await key.setTitle();
 		await key.setImage(swatchSvg(colour));
 	}
 }

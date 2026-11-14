@@ -72,7 +72,7 @@
             "Tooltip": "Sets every OpenRGB device to the chosen colour when pressed.",
             "Controllers": ["Keypad"],
             "DisableAutomaticStates": true,
-            "UserTitleEnabled": false,
+            "UserTitleEnabled": true,
             "PropertyInspectorPath": "ui/set-colour.html",
             "SupportedInMultiActions": true,
             "States": [
