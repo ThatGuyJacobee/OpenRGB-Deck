@@ -98,7 +98,6 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 
 		try {
 			await openRgb.loadProfile(profile);
-			await ev.action.showOk();
 		} catch (error) {
 			streamDeck.logger.error(`Could not load the OpenRGB profile "${profile}": ${errorMessage(error)}`);
 			await ev.action.showAlert();
