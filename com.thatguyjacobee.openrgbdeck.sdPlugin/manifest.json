@@ -37,6 +37,7 @@
             "Controllers": ["Keypad"],
             "DisableAutomaticStates": true,
             "UserTitleEnabled": false,
+            "PropertyInspectorPath": "ui/set-profile.html",
             "SupportedInMultiActions": true,
             "States": [
                 {

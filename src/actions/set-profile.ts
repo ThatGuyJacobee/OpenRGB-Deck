@@ -3,6 +3,7 @@ import streamDeck, {
 	type DidReceiveSettingsEvent,
 	type KeyAction,
 	type KeyDownEvent,
+	type SendToPluginEvent,
 	SingletonAction,
 	type WillAppearEvent,
 } from "@elgato/streamdeck";
@@ -16,6 +17,17 @@ import { profileKeyView } from "./key-view";
 export type SetProfileSettings = {
 	/** Name of the OpenRGB profile to load. */
 	profile?: string;
+};
+
+/**
+ * Requests the property inspector can send to the plugin.
+ */
+type InspectorRequest = {
+	/** Request identifier. */
+	event?: string;
+
+	/** Whether the request came from the refresh button. */
+	isRefresh?: boolean;
 };
 
 /**
@@ -33,8 +45,23 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 	constructor() {
 		super();
 
-		openRgb.on("activeProfile", () => void this.#refreshKeys());
-		openRgb.on("stateChanged", () => void this.#refreshKeys());
+		openRgb.on("activeProfile", () => {
+			void this.#refreshKeys();
+			void this.#sendStatus();
+		});
+
+		openRgb.on("profiles", () => {
+			void this.#refreshKeys();
+			void this.#sendProfiles();
+			void this.#sendStatus();
+		});
+
+		openRgb.on("stateChanged", () => {
+			void this.#refreshKeys();
+			void this.#sendStatus();
+		});
+
+		openRgb.on("serverName", () => void this.#sendStatus());
 	}
 
 	/**
@@ -80,6 +107,35 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 	}
 
 	/**
+	 * Answers the property inspector's profile list and status requests.
+	 * @param ev The message from the property inspector.
+	 */
+	public override async onSendToPlugin(ev: SendToPluginEvent<InspectorRequest, SetProfileSettings>): Promise<void> {
+		if (typeof ev.payload !== "object" || ev.payload === null) {
+			return;
+		}
+
+		if (ev.payload.event === "getProfiles") {
+			if (ev.payload.isRefresh === true && openRgb.connected) {
+				try {
+					await openRgb.listProfiles();
+				} catch (error) {
+					streamDeck.logger.warn(`Could not refresh the OpenRGB profile list: ${toMessage(error)}`);
+				}
+			}
+
+			await this.#sendProfiles();
+			await this.#sendStatus();
+
+			return;
+		}
+
+		if (ev.payload.event === "getStatus") {
+			await this.#sendStatus();
+		}
+	}
+
+	/**
 	 * Shows the configured profile on a key that appears.
 	 * @param ev The action appearance event.
 	 */
@@ -118,6 +174,37 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 
 		await key.setTitle(view.title);
 		await key.setState(view.state);
+	}
+
+	/**
+	 * Sends the profile list to the open property inspector.
+	 */
+	async #sendProfiles(): Promise<void> {
+		try {
+			await streamDeck.ui.sendToPropertyInspector({
+				event: "getProfiles",
+				items: openRgb.profiles.map((profile) => ({ label: profile, value: profile })),
+			});
+		} catch (error) {
+			streamDeck.logger.debug(`Could not send the profile list to the property inspector: ${toMessage(error)}`);
+		}
+	}
+
+	/**
+	 * Sends the connection status to the open property inspector.
+	 */
+	async #sendStatus(): Promise<void> {
+		try {
+			await streamDeck.ui.sendToPropertyInspector({
+				event: "status",
+				state: openRgb.state,
+				connected: openRgb.connected,
+				serverName: openRgb.serverName,
+				activeProfile: openRgb.activeProfile,
+			});
+		} catch (error) {
+			streamDeck.logger.debug(`Could not send the status to the property inspector: ${toMessage(error)}`);
+		}
 	}
 }
 
