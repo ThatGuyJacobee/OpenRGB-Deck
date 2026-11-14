@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 
 import { OpenRgbClient } from "../src/openrgb/client";
-import type { OpenRgbConnectedEvent, OpenRgbError } from "../src/openrgb/types";
+import type { OpenRgbConnectedEvent, OpenRgbError, RgbController } from "../src/openrgb/types";
 
 interface ProbeOptions {
 	/** OpenRGB SDK host. */
@@ -43,6 +43,31 @@ function printProfiles(profiles: readonly string[], active: string | null): void
 	}
 
 	console.log(`Active: ${active ?? "(none)"}`);
+}
+
+/**
+ * Prints the controllers reported by the server.
+ * @param controllers Controllers to print.
+ */
+function printControllers(controllers: readonly RgbController[]): void {
+	console.log(`Controllers (${controllers.length}):`);
+
+	if (controllers.length === 0) {
+		console.log("  (none)");
+
+		return;
+	}
+
+	for (const controller of controllers) {
+		const mode = controller.modes[controller.activeMode]?.name ?? "(unknown)";
+		const vendor = controller.vendor.length > 0 ? ` (${controller.vendor})` : "";
+
+		console.log(`  - [${controller.id}] ${controller.displayName || controller.name}${vendor}`);
+		console.log(
+			`      ${controller.ledNames.length} LEDs, ${controller.zones.length} zones, ` +
+				`${controller.modes.length} modes, active: ${mode}`,
+		);
+	}
 }
 
 /**
@@ -199,6 +224,10 @@ function main(): void {
 			const active = await client.getActiveProfile();
 
 			printProfiles(profiles, active);
+
+			const controllers = await client.listControllers();
+
+			printControllers(controllers);
 		} catch (error) {
 			printError(error);
 			suppressEvents = false;
@@ -236,6 +265,15 @@ function main(): void {
 		}
 
 		console.log(`Active profile: ${profile ?? "(none)"}`);
+	});
+
+	client.on("controllers", (controllers) => {
+		if (!options.watch || suppressEvents) {
+			return;
+		}
+
+		console.log("Controller list updated:");
+		printControllers(controllers);
 	});
 
 	client.on("serverName", (name) => {

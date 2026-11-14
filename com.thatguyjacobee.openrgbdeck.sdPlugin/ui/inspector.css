@@ -1,0 +1,24 @@
+.status {
+	color: var(--font-color, #969696);
+	font-family: var(--font-family);
+	font-size: var(--font-size, 9pt);
+	line-height: 30px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.status[data-tone="ok"] {
+	color: #32d74b;
+}
+
+.status[data-tone="error"] {
+	color: #ff453a;
+}
+
+.hint {
+	color: var(--font-color, #969696);
+	font-family: var(--font-family);
+	font-size: var(--font-size, 9pt);
+	line-height: 30px;
+}

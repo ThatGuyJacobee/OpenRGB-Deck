@@ -91,6 +91,195 @@ export const NOOP_LOGGER: OpenRgbLogger = {
 };
 
 /**
+ * One colour value as sent to a controller.
+ */
+export interface RgbColour {
+	/** Red channel, 0-255. */
+	red: number;
+
+	/** Green channel, 0-255. */
+	green: number;
+
+	/** Blue channel, 0-255. */
+	blue: number;
+}
+
+/**
+ * One mode exposed by a controller.
+ */
+export interface RgbMode {
+	/** Mode name. */
+	name: string;
+
+	/** Capability flags reported for the mode. */
+	flags: number;
+
+	/** Lowest supported speed. */
+	speedMin: number;
+
+	/** Highest supported speed. */
+	speedMax: number;
+
+	/** Lowest supported brightness. */
+	brightnessMin: number;
+
+	/** Highest supported brightness. */
+	brightnessMax: number;
+
+	/** Lowest number of colours. */
+	coloursMin: number;
+
+	/** Highest number of colours. */
+	coloursMax: number;
+
+	/** Current speed. */
+	speed: number;
+
+	/** Current brightness. */
+	brightness: number;
+
+	/** Current direction. */
+	direction: number;
+
+	/** How the mode interprets its colours. */
+	colourMode: number;
+
+	/** Colours configured for the mode. */
+	colours: RgbColour[];
+}
+
+/**
+ * Matrix map attached to a zone or segment.
+ */
+export interface RgbMatrixMap {
+	/** Number of rows. */
+	height: number;
+
+	/** Number of columns. */
+	width: number;
+
+	/** Row-major LED indices. */
+	data: number[];
+}
+
+/**
+ * One segment of a zone.
+ */
+export interface RgbSegment {
+	/** Segment name. */
+	name: string;
+
+	/** Segment type. */
+	type: number;
+
+	/** First LED index covered by the segment. */
+	startIndex: number;
+
+	/** Number of LEDs in the segment. */
+	ledCount: number;
+
+	/** Matrix map of the segment, when present. */
+	matrix: RgbMatrixMap | null;
+
+	/** Segment flags. */
+	flags: number;
+}
+
+/**
+ * One zone exposed by a controller.
+ */
+export interface RgbZone {
+	/** Zone name. */
+	name: string;
+
+	/** Zone type. */
+	type: number;
+
+	/** Lowest supported LED count. */
+	ledsMin: number;
+
+	/** Highest supported LED count. */
+	ledsMax: number;
+
+	/** Current LED count. */
+	ledsCount: number;
+
+	/** Matrix map of the zone, when present. */
+	matrix: RgbMatrixMap | null;
+
+	/** Segments that make up the zone. */
+	segments: RgbSegment[];
+
+	/** Zone flags. */
+	flags: number;
+
+	/** Active mode index for this zone. */
+	activeMode: number;
+
+	/** Per-zone modes, when the controller supports them. */
+	modes: RgbMode[];
+
+	/** User-facing zone name. */
+	displayName: string;
+}
+
+/**
+ * One controller reported by the OpenRGB server.
+ */
+export interface RgbController {
+	/** Unique controller identifier used in packet headers. */
+	id: number;
+
+	/** Controller type. */
+	type: number;
+
+	/** Controller name. */
+	name: string;
+
+	/** Controller vendor. */
+	vendor: string;
+
+	/** Controller description. */
+	description: string;
+
+	/** Controller version. */
+	version: string;
+
+	/** Controller serial number. */
+	serial: string;
+
+	/** Controller location. */
+	location: string;
+
+	/** Index of the active mode. */
+	activeMode: number;
+
+	/** Controller modes. */
+	modes: RgbMode[];
+
+	/** Controller zones. */
+	zones: RgbZone[];
+
+	/** Names of the controller's LEDs, in order. */
+	ledNames: string[];
+
+	/** Colours currently stored on the controller. */
+	colours: RgbColour[];
+
+	/** Alternative LED names, when provided. */
+	ledDisplayNames: string[];
+
+	/** Controller capability flags. */
+	flags: number;
+
+	/** User-facing controller name. */
+	displayName: string;
+
+	/** Device-specific configuration as a JSON string. */
+	configuration: string;
+}
+
+/**
  * Options for an OpenRGB client.
  */
 export interface OpenRgbClientOptions {
@@ -160,6 +349,9 @@ export type OpenRgbEventMap = {
 
 	/** The profile list changed. */
 	profiles: [profiles: string[]];
+
+	/** The controller list changed. */
+	controllers: [controllers: RgbController[]];
 
 	/** The connection state changed. */
 	stateChanged: [state: OpenRgbConnectionState];

@@ -8,6 +8,7 @@ import {
 	DEFAULT_HOST,
 	DEFAULT_PORT,
 	encodePacket,
+	encodeUpdateLeds,
 	HEADER_SIZE,
 	MAX_PACKET_SIZE,
 	type PacketAck,
@@ -17,6 +18,8 @@ import {
 	PacketWriter,
 	parseAck,
 	parseActiveProfile,
+	parseControllerData,
+	parseControllerIds,
 	parseCString,
 	parseProfileList,
 	parseUint32,
@@ -29,6 +32,8 @@ import {
 	OpenRgbError,
 	type OpenRgbEventMap,
 	type OpenRgbLogger,
+	type RgbColour,
+	type RgbController,
 } from "./types";
 
 /** Default timeout for handshake and profile-list requests, in milliseconds. */
@@ -83,6 +88,9 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 
 	/** Bytes received but not yet parsed. */
 	#buffer: Buffer = Buffer.alloc(0);
+
+	/** Controllers reported by the server. */
+	#controllers: RgbController[] = [];
 
 	/** Name sent to the server. */
 	readonly #clientName: string;
@@ -172,6 +180,11 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 		return this.#state === "connected";
 	}
 
+	/** Controllers reported by the server. */
+	public get controllers(): readonly RgbController[] {
+		return this.#controllers;
+	}
+
 	/** Profiles reported by the server. */
 	public get profiles(): readonly string[] {
 		return this.#profiles;
@@ -217,6 +230,39 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	}
 
 	/**
+	 * Requests the controller list and every controller's data.
+	 * @returns Controllers in server order.
+	 */
+	public async listControllers(): Promise<RgbController[]> {
+		const countPayload = await this.#requestOnConnection(
+			0,
+			PacketId.RequestControllerCount,
+			PacketId.RequestControllerCount,
+			EMPTY_PAYLOAD,
+			this.#requestTimeoutMs,
+		);
+		const ids = parseControllerIds(countPayload);
+		const versionPayload = new PacketWriter().uint32(this.#protocolVersion).toBuffer();
+		const controllers: RgbController[] = [];
+
+		for (const id of ids) {
+			const payload = await this.#requestOnConnection(
+				id,
+				PacketId.RequestControllerData,
+				PacketId.RequestControllerData,
+				versionPayload,
+				this.#requestTimeoutMs,
+			);
+
+			controllers.push(parseControllerData(payload, id));
+		}
+
+		this.#setControllers(controllers);
+
+		return controllers;
+	}
+
+	/**
 	 * Requests the profile list from the server.
 	 * @returns Profile names in server order.
 	 */
@@ -253,6 +299,34 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 			undefined,
 			new PacketWriter().cstring(name).toBuffer(),
 			this.#loadProfileTimeoutMs,
+		);
+	}
+
+	/**
+	 * Sets every LED of a controller to one colour.
+	 *
+	 * Switches the controller to its custom mode first, then sends one colour
+	 * per LED, so devices with active effects keep the colour.
+	 * @param id Unique controller identifier.
+	 * @param colour Colour to apply.
+	 */
+	public async setControllerColour(id: number, colour: RgbColour): Promise<void> {
+		const controller = this.#controllers.find((entry) => entry.id === id);
+
+		if (controller === undefined) {
+			throw new OpenRgbError("REQUEST_FAILED", `OpenRGB controller ${id} is not known.`);
+		}
+
+		await this.#requestOnConnection(id, PacketId.SetCustomMode, undefined, EMPTY_PAYLOAD, this.#requestTimeoutMs);
+
+		const colours = Array.from({ length: controller.ledNames.length }, () => colour);
+
+		await this.#requestOnConnection(
+			id,
+			PacketId.UpdateLeds,
+			undefined,
+			encodeUpdateLeds(colours),
+			this.#requestTimeoutMs,
 		);
 	}
 
@@ -428,6 +502,7 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 				serverFlags: this.#serverFlags,
 			});
 			void this.#refreshProfileState();
+			void this.#refreshControllerState();
 		} catch (error) {
 			if (socket !== this.#socket || generation !== this.#generation) {
 				return;
@@ -507,6 +582,21 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	}
 
 	/**
+	 * Refreshes the cached controller list after connecting or a device change.
+	 */
+	async #refreshControllerState(): Promise<void> {
+		try {
+			await this.listControllers();
+		} catch (error) {
+			if (this.#state !== "connected") {
+				return;
+			}
+
+			this.#logger.warn(`Could not refresh OpenRGB controllers: ${toOpenRgbError(error).message}`);
+		}
+	}
+
+	/**
 	 * Routes a complete packet to its request or push handler.
 	 * @param header Packet header.
 	 * @param payload Packet body.
@@ -543,6 +633,11 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 
 		if (header.packetId === PacketId.ProfileListUpdated) {
 			this.#setProfiles(parseProfileList(payload));
+			return;
+		}
+
+		if (header.packetId === PacketId.DeviceListUpdated) {
+			void this.#refreshControllerState();
 			return;
 		}
 
@@ -803,6 +898,19 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	}
 
 	/**
+	 * Updates the cached controller list and notifies listeners.
+	 * @param controllers Controllers in server order.
+	 */
+	#setControllers(controllers: RgbController[]): void {
+		if (sameControllers(this.#controllers, controllers)) {
+			return;
+		}
+
+		this.#controllers = controllers;
+		this.emit("controllers", [...this.#controllers]);
+	}
+
+	/**
 	 * Updates the connection state and notifies listeners.
 	 * @param state New state.
 	 */
@@ -814,6 +922,34 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 		this.#state = state;
 		this.emit("stateChanged", state);
 	}
+}
+
+/**
+ * Compares two controller lists by the fields the plugin reacts to.
+ * @param left Current controllers.
+ * @param right Newly fetched controllers.
+ * @returns True when the lists are equivalent.
+ */
+function sameControllers(left: readonly RgbController[], right: readonly RgbController[]): boolean {
+	if (left.length !== right.length) {
+		return false;
+	}
+
+	return left.every((controller, index) => {
+		const other = right[index];
+
+		return (
+			other !== undefined &&
+			controller.id === other.id &&
+			controller.name === other.name &&
+			controller.vendor === other.vendor &&
+			controller.displayName === other.displayName &&
+			controller.activeMode === other.activeMode &&
+			controller.ledNames.length === other.ledNames.length &&
+			controller.modes.length === other.modes.length &&
+			controller.zones.length === other.zones.length
+		);
+	});
 }
 
 /**
