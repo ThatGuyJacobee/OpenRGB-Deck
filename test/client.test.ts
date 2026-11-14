@@ -389,3 +389,144 @@ describe("malformed input", () => {
 		await vi.waitFor(() => expect(server.connections).toBe(2), WAIT);
 	});
 });
+
+describe("controllers", () => {
+	const colour = { blue: 30, green: 20, red: 10 };
+
+	it("loads every controller after connecting", async () => {
+		const server = await startServer({
+			controllers: [
+				{ id: 11, ledCount: 3, name: "Keyboard", vendor: "Acme" },
+				{ id: 22, ledCount: 2, name: "Mouse", vendor: "Acme" },
+			],
+		});
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.controllers).toHaveLength(2), WAIT);
+
+		expect(client.controllers[0]).toMatchObject({ id: 11, name: "Keyboard", vendor: "Acme" });
+		expect(client.controllers[0]?.ledNames).toEqual([
+			"Keyboard LED 1",
+			"Keyboard LED 2",
+			"Keyboard LED 3",
+		]);
+		expect(client.controllers[1]).toMatchObject({ id: 22, name: "Mouse", vendor: "Acme" });
+		expect(
+			server.received
+				.filter((packet) => packet.packetId === PacketId.RequestControllerData)
+				.map((packet) => packet.deviceId),
+		).toEqual([11, 22]);
+	});
+
+	it("refreshes controllers when the device list changes", async () => {
+		const server = await startServer({
+			controllers: [{ id: 1, ledCount: 1, name: "One" }],
+		});
+		const client = createClient(server);
+
+		client.start();
+		await vi.waitFor(() => expect(client.controllers).toHaveLength(1), WAIT);
+
+		server.setControllers([
+			{ id: 1, ledCount: 1, name: "One" },
+			{ id: 2, ledCount: 2, name: "Two" },
+		]);
+		server.sendDeviceListUpdated();
+
+		await vi.waitFor(() => expect(client.controllers).toHaveLength(2), WAIT);
+		expect(client.controllers.map((controller) => controller.id)).toEqual([1, 2]);
+
+		server.setControllers([{ id: 2, ledCount: 2, name: "Two" }]);
+		server.sendDeviceListUpdated();
+
+		await vi.waitFor(() => expect(client.controllers).toHaveLength(1), WAIT);
+		expect(client.controllers[0]?.id).toBe(2);
+	});
+
+	it("does not emit when the controller list is unchanged", async () => {
+		const server = await startServer({
+			controllers: [{ id: 1, ledCount: 1, name: "One" }],
+		});
+		const client = createClient(server);
+
+		client.start();
+		await vi.waitFor(() => expect(client.controllers).toHaveLength(1), WAIT);
+
+		let events = 0;
+
+		client.on("controllers", () => {
+			events += 1;
+		});
+
+		await client.listControllers();
+
+		expect(events).toBe(0);
+	});
+
+	it("switches to custom mode and sends one colour per LED", async () => {
+		const server = await startServer({
+			controllers: [{ id: 5, ledCount: 3, name: "Strip" }],
+		});
+		const client = createClient(server);
+
+		client.start();
+		await vi.waitFor(() => expect(client.controllers).toHaveLength(1), WAIT);
+
+		await client.setControllerColour(5, colour);
+
+		const customMode = server.received.find((packet) => packet.packetId === PacketId.SetCustomMode);
+
+		expect(customMode?.deviceId).toBe(5);
+		expect(server.lastLeds?.deviceId).toBe(5);
+
+		const payload = server.lastLeds?.payload ?? Buffer.alloc(0);
+
+		expect(payload.readUInt32LE(0)).toBe(payload.length);
+		expect(payload.readUInt16LE(4)).toBe(3);
+		expect([...payload.subarray(6)]).toEqual([10, 20, 30, 0, 10, 20, 30, 0, 10, 20, 30, 0]);
+	});
+
+	it("rejects an unknown controller", async () => {
+		const server = await startServer();
+		const client = createClient(server);
+
+		client.start();
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+
+		await expect(client.setControllerColour(99, colour)).rejects.toThrow("not known");
+	});
+
+	it("rejects when the server refuses the update", async () => {
+		const server = await startServer({
+			controllers: [{ id: 5, ledCount: 1, name: "Strip" }],
+			updateLedsStatus: 1,
+		});
+		const client = createClient(server);
+
+		client.start();
+		await vi.waitFor(() => expect(client.controllers).toHaveLength(1), WAIT);
+
+		await expect(client.setControllerColour(5, colour)).rejects.toThrow("status 1");
+	});
+
+	it("resyncs controllers after reconnecting", async () => {
+		const server = await startServer({
+			controllers: [{ id: 1, ledCount: 1, name: "One" }],
+		});
+		const client = createClient(server);
+
+		client.start();
+		await vi.waitFor(() => expect(client.controllers).toHaveLength(1), WAIT);
+
+		server.setControllers([
+			{ id: 1, ledCount: 1, name: "One" },
+			{ id: 2, ledCount: 1, name: "Two" },
+		]);
+		server.dropConnections();
+
+		await vi.waitFor(() => expect(client.controllers).toHaveLength(2), WAIT);
+		expect(server.connections).toBe(2);
+	});
+});

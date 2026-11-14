@@ -1,6 +1,25 @@
 import { createServer, type Server, type Socket } from "node:net";
 
 import { PacketId, PROTOCOL_VERSION } from "../src/openrgb/protocol";
+import { controllerDataPayload } from "./controller-fixture";
+
+/** A controller returned by the fake server. */
+export interface FakeController {
+	/** Unique controller identifier. */
+	id: number;
+
+	/** Controller name. */
+	name: string;
+
+	/** Controller vendor. */
+	vendor?: string;
+
+	/** Number of LEDs; names are generated as "Name LED 1" and so on. */
+	ledCount?: number;
+
+	/** User-facing controller name. */
+	displayName?: string;
+}
 
 /** Options for a {@link FakeServer}. */
 export interface FakeServerOptions {
@@ -45,6 +64,21 @@ export interface FakeServerOptions {
 
 	/** Reply to profile load requests. */
 	replyToLoadProfile?: boolean;
+
+	/** Controllers returned by the controller requests. */
+	controllers?: FakeController[];
+
+	/** Reply to the controller count request. */
+	replyToControllers?: boolean;
+
+	/** Reply to controller data requests. */
+	replyToControllerData?: boolean;
+
+	/** Status returned when a controller is switched to custom mode. */
+	customModeStatus?: number;
+
+	/** Status returned when LEDs are updated. */
+	updateLedsStatus?: number;
 }
 
 /** A packet received from a client. */
@@ -54,6 +88,15 @@ export interface ReceivedPacket {
 
 	/** Packet identifier. */
 	packetId: number;
+
+	/** Packet body. */
+	payload: Buffer;
+}
+
+/** The most recent UpdateLEDs packet sent by a client. */
+export interface UpdateLedsPacket {
+	/** Controller identifier from the header. */
+	deviceId: number;
 
 	/** Packet body. */
 	payload: Buffer;
@@ -99,6 +142,9 @@ export class FakeServer {
 	/** Most recent profile name sent in packet 152. */
 	#loadedProfile = "";
 
+	/** Most recent UpdateLEDs packet sent by a client. */
+	#lastLeds: UpdateLedsPacket | undefined;
+
 	/** Normalised server behaviour. */
 	readonly #options: Required<FakeServerOptions>;
 
@@ -122,18 +168,23 @@ export class FakeServer {
 		this.#options = {
 			activeProfile: "Fake Profile",
 			coalesceHandshake: false,
+			controllers: [],
+			customModeStatus: 0,
 			fragmentResponses: false,
 			loadProfileStatus: 0,
 			port: 0,
 			profiles: ["Fake Profile"],
 			protocolVersion: PROTOCOL_VERSION,
 			replyToActiveProfile: true,
+			replyToControllerData: true,
+			replyToControllers: true,
 			replyToFlags: true,
 			replyToLoadProfile: true,
 			replyToProfileList: true,
 			replyToVersion: true,
 			serverFlags: 127,
 			serverName: "Fake OpenRGB",
+			updateLedsStatus: 0,
 			...options,
 		};
 
@@ -153,6 +204,11 @@ export class FakeServer {
 	/** Total number of client connections accepted. */
 	public get connections(): number {
 		return this.#connections;
+	}
+
+	/** Most recent UpdateLEDs packet sent by a client. */
+	public get lastLeds(): UpdateLedsPacket | undefined {
+		return this.#lastLeds;
 	}
 
 	/** Most recent profile name sent in packet 152. */
@@ -222,6 +278,13 @@ export class FakeServer {
 	}
 
 	/**
+	 * Sends a device-list change to every client.
+	 */
+	public sendDeviceListUpdated(): void {
+		this.sendPacket(PacketId.DeviceListUpdated);
+	}
+
+	/**
 	 * Sends a packet to every active client.
 	 * @param packetId Packet identifier.
 	 * @param payload Packet body.
@@ -247,6 +310,14 @@ export class FakeServer {
 		for (const socket of this.#sockets) {
 			socket.write(buffer);
 		}
+	}
+
+	/**
+	 * Replaces the controllers returned by the server.
+	 * @param controllers New controllers.
+	 */
+	public setControllers(controllers: FakeController[]): void {
+		this.#options.controllers = controllers;
 	}
 
 	/**
@@ -433,6 +504,47 @@ export class FakeServer {
 				} else {
 					sendAck = false;
 				}
+				break;
+
+			case PacketId.RequestControllerCount:
+				if (this.#options.replyToControllers) {
+					const parts = [uint32(this.#options.controllers.length)];
+
+					for (const controller of this.#options.controllers) {
+						parts.push(uint32(controller.id));
+					}
+
+					this.#write(socket, encodeFrame(0, PacketId.RequestControllerCount, Buffer.concat(parts)));
+				}
+				break;
+
+			case PacketId.RequestControllerData: {
+				const controller = this.#options.controllers.find((entry) => entry.id === frame.deviceId);
+
+				if (this.#options.replyToControllerData && controller !== undefined) {
+					const ledCount = controller.ledCount ?? 0;
+					const payload = controllerDataPayload({
+						displayName: controller.displayName,
+						ledNames: Array.from(
+							{ length: ledCount },
+							(_, index) => `${controller.displayName ?? controller.name} LED ${index + 1}`,
+						),
+						name: controller.name,
+						vendor: controller.vendor,
+					});
+
+					this.#write(socket, encodeFrame(controller.id, PacketId.RequestControllerData, payload));
+				}
+				break;
+			}
+
+			case PacketId.SetCustomMode:
+				ackStatus = this.#options.customModeStatus;
+				break;
+
+			case PacketId.UpdateLeds:
+				this.#lastLeds = { deviceId: frame.deviceId, payload: Buffer.from(frame.payload) };
+				ackStatus = this.#options.updateLedsStatus;
 				break;
 
 			default:
