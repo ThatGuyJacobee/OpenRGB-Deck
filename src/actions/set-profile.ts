@@ -8,6 +8,7 @@ import streamDeck, {
 	type WillAppearEvent,
 } from "@elgato/streamdeck";
 
+import { errorMessage } from "../errors";
 import { openRgb } from "../service";
 import { profileKeyView } from "./key-view";
 
@@ -99,7 +100,7 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 			await openRgb.loadProfile(profile);
 			await ev.action.showOk();
 		} catch (error) {
-			streamDeck.logger.error(`Could not load the OpenRGB profile "${profile}": ${toMessage(error)}`);
+			streamDeck.logger.error(`Could not load the OpenRGB profile "${profile}": ${errorMessage(error)}`);
 			await ev.action.showAlert();
 		} finally {
 			this.#loading.delete(ev.action.id);
@@ -120,7 +121,7 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 				try {
 					await openRgb.listProfiles();
 				} catch (error) {
-					streamDeck.logger.warn(`Could not refresh the OpenRGB profile list: ${toMessage(error)}`);
+					streamDeck.logger.warn(`Could not refresh the OpenRGB profile list: ${errorMessage(error)}`);
 				}
 			}
 
@@ -159,7 +160,7 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 			try {
 				await this.#updateKey(key, await key.getSettings());
 			} catch (error) {
-				streamDeck.logger.debug(`Could not update a Set Profile key: ${toMessage(error)}`);
+				streamDeck.logger.debug(`Could not update a Set Profile key: ${errorMessage(error)}`);
 			}
 		}
 	}
@@ -186,7 +187,9 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 				items: openRgb.profiles.map((profile) => ({ label: profile, value: profile })),
 			});
 		} catch (error) {
-			streamDeck.logger.debug(`Could not send the profile list to the property inspector: ${toMessage(error)}`);
+			streamDeck.logger.debug(
+				`Could not send the profile list to the property inspector: ${errorMessage(error)}`,
+			);
 		}
 	}
 
@@ -203,16 +206,7 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 				activeProfile: openRgb.activeProfile,
 			});
 		} catch (error) {
-			streamDeck.logger.debug(`Could not send the status to the property inspector: ${toMessage(error)}`);
+			streamDeck.logger.debug(`Could not send the status to the property inspector: ${errorMessage(error)}`);
 		}
 	}
-}
-
-/**
- * Reads a message from an unknown thrown value.
- * @param error Thrown value.
- * @returns A human-readable description.
- */
-function toMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
