@@ -69,7 +69,7 @@
             "Name": "Set OpenRGB Colour",
             "UUID": "com.thatguyjacobee.openrgbdeck.set-colour",
             "Icon": "imgs/actions/set-colour/icon",
-            "Tooltip": "Sets the selected OpenRGB devices to a fixed colour when pressed.",
+            "Tooltip": "Sets every OpenRGB device to the chosen colour when pressed.",
             "Controllers": ["Keypad"],
             "DisableAutomaticStates": true,
             "UserTitleEnabled": false,

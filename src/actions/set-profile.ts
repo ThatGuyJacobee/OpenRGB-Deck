@@ -10,6 +10,7 @@ import streamDeck, {
 
 import { errorMessage } from "../errors";
 import { openRgb } from "../service";
+import { sendInspectorStatus } from "./inspector-status";
 import { profileKeyView } from "./key-view";
 
 /**
@@ -48,21 +49,21 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 
 		openRgb.on("activeProfile", () => {
 			void this.#refreshKeys();
-			void this.#sendStatus();
+			void sendInspectorStatus();
 		});
 
 		openRgb.on("profiles", () => {
 			void this.#refreshKeys();
 			void this.#sendProfiles();
-			void this.#sendStatus();
+			void sendInspectorStatus();
 		});
 
 		openRgb.on("stateChanged", () => {
 			void this.#refreshKeys();
-			void this.#sendStatus();
+			void sendInspectorStatus();
 		});
 
-		openRgb.on("serverName", () => void this.#sendStatus());
+		openRgb.on("serverName", () => void sendInspectorStatus());
 	}
 
 	/**
@@ -125,13 +126,13 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 			}
 
 			await this.#sendProfiles();
-			await this.#sendStatus();
+			await sendInspectorStatus();
 
 			return;
 		}
 
 		if (ev.payload.event === "getStatus") {
-			await this.#sendStatus();
+			await sendInspectorStatus();
 		}
 	}
 
@@ -189,23 +190,6 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 			streamDeck.logger.debug(
 				`Could not send the profile list to the property inspector: ${errorMessage(error)}`,
 			);
-		}
-	}
-
-	/**
-	 * Sends the connection status to the open property inspector.
-	 */
-	async #sendStatus(): Promise<void> {
-		try {
-			await streamDeck.ui.sendToPropertyInspector({
-				event: "status",
-				state: openRgb.state,
-				connected: openRgb.connected,
-				serverName: openRgb.serverName,
-				activeProfile: openRgb.activeProfile,
-			});
-		} catch (error) {
-			streamDeck.logger.debug(`Could not send the status to the property inspector: ${errorMessage(error)}`);
 		}
 	}
 }
