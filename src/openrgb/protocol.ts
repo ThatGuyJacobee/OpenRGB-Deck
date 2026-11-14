@@ -1,4 +1,5 @@
 import { OpenRgbError } from "./types";
+import type { RgbColour, RgbController, RgbMatrixMap, RgbMode, RgbSegment, RgbZone } from "./types";
 
 /** Magic value at the start of every OpenRGB SDK packet. */
 export const MAGIC = "ORGB";
@@ -486,6 +487,342 @@ export function parseUint32(payload: Buffer): number {
 	}
 
 	return payload.readUInt32LE(0);
+}
+
+/**
+ * Decodes the controller count response into unique controller IDs.
+ * @param payload Packet body containing a count followed by 32-bit IDs.
+ * @returns Unique controller IDs in server order.
+ */
+export function parseControllerIds(payload: Buffer): number[] {
+	if (payload.length < 4) {
+		throw new OpenRgbError("PROTOCOL_ERROR", `Controller count is too short: ${payload.length} bytes.`);
+	}
+
+	const count = payload.readUInt32LE(0);
+
+	if (payload.length !== 4 + count * 4) {
+		throw new OpenRgbError(
+			"PROTOCOL_ERROR",
+			`Controller count header says ${count} controller(s), but the payload is ${payload.length} bytes.`,
+		);
+	}
+
+	const ids: number[] = [];
+
+	for (let index = 0; index < count; index++) {
+		ids.push(payload.readUInt32LE(4 + index * 4));
+	}
+
+	return ids;
+}
+
+/**
+ * Decodes a controller data response.
+ * @param payload Packet body containing a size and a protocol 6 device block.
+ * @param id Unique controller identifier from the packet header.
+ * @returns The parsed controller.
+ */
+export function parseControllerData(payload: Buffer, id: number): RgbController {
+	const reader = new PacketReader(payload);
+	const dataSize = reader.uint32();
+
+	if (dataSize !== payload.length) {
+		throw new OpenRgbError(
+			"PROTOCOL_ERROR",
+			`Controller data size mismatch: header says ${dataSize}, received ${payload.length}.`,
+		);
+	}
+
+	const type = reader.uint32();
+	const name = reader.string();
+	const vendor = reader.string();
+	const description = reader.string();
+	const version = reader.string();
+	const serial = reader.string();
+	const location = reader.string();
+	const modeCount = reader.uint16();
+	const activeMode = reader.uint32();
+	const modes = readModeEntries(reader, modeCount);
+	const zones = readZones(reader);
+	const ledCount = reader.uint16();
+	const ledNames: string[] = [];
+
+	for (let index = 0; index < ledCount; index++) {
+		ledNames.push(reader.string());
+	}
+
+	const colourCount = reader.uint16();
+	const colours = readColours(reader, colourCount);
+	const displayNameCount = reader.uint16();
+	const ledDisplayNames: string[] = [];
+
+	for (let index = 0; index < displayNameCount; index++) {
+		ledDisplayNames.push(reader.string());
+	}
+
+	const flags = reader.uint32();
+	const displayName = reader.string();
+	const configurationLength = reader.uint32();
+	const configuration = decodeConfiguration(reader.bytes(configurationLength));
+
+	if (reader.remaining !== 0) {
+		throw new OpenRgbError("PROTOCOL_ERROR", `Controller data has ${reader.remaining} trailing byte(s).`);
+	}
+
+	return {
+		activeMode,
+		colours,
+		configuration,
+		description,
+		displayName,
+		flags,
+		id,
+		ledDisplayNames,
+		ledNames,
+		location,
+		modes,
+		name,
+		serial,
+		type,
+		vendor,
+		version,
+		zones,
+	};
+}
+
+/**
+ * Encodes an UpdateLEDs payload.
+ * @param colours Colour for each LED, in order.
+ * @returns The size-prefixed packet body used by packet 1050.
+ */
+export function encodeUpdateLeds(colours: readonly RgbColour[]): Buffer {
+	if (colours.length > 0xffff) {
+		throw new OpenRgbError("PROTOCOL_ERROR", `Cannot send ${colours.length} LED colours; the limit is 65535.`);
+	}
+
+	const writer = new PacketWriter().uint32(4 + 2 + colours.length * 4).uint16(colours.length);
+
+	for (const colour of colours) {
+		writer.bytes(encodeColour(colour));
+	}
+
+	return writer.toBuffer();
+}
+
+/**
+ * Encodes one colour as R, G, B and a zero pad byte.
+ * @param colour Colour to encode.
+ * @returns Four bytes.
+ */
+export function encodeColour(colour: RgbColour): Buffer {
+	assertColourChannel(colour.red, "Red");
+	assertColourChannel(colour.green, "Green");
+	assertColourChannel(colour.blue, "Blue");
+
+	const buffer = Buffer.allocUnsafe(4);
+
+	buffer.writeUInt8(colour.red, 0);
+	buffer.writeUInt8(colour.green, 1);
+	buffer.writeUInt8(colour.blue, 2);
+	buffer.writeUInt8(0, 3);
+
+	return buffer;
+}
+
+/**
+ * Reads the mode list from a packet body.
+ * @param reader Reader positioned at the mode count.
+ * @returns The parsed modes.
+ */
+function readModes(reader: PacketReader): RgbMode[] {
+	const count = reader.uint16();
+
+	return readModeEntries(reader, count);
+}
+
+/**
+ * Reads a known number of mode entries.
+ * @param reader Reader positioned at the first mode.
+ * @param count Number of modes to read.
+ * @returns The parsed modes.
+ */
+function readModeEntries(reader: PacketReader, count: number): RgbMode[] {
+	const modes: RgbMode[] = [];
+
+	for (let index = 0; index < count; index++) {
+		const name = reader.string();
+		const flags = reader.uint32();
+		const speedMin = reader.uint32();
+		const speedMax = reader.uint32();
+		const brightnessMin = reader.uint32();
+		const brightnessMax = reader.uint32();
+		const coloursMin = reader.uint32();
+		const coloursMax = reader.uint32();
+		const speed = reader.uint32();
+		const brightness = reader.uint32();
+		const direction = reader.uint32();
+		const colourMode = reader.uint32();
+		const colourCount = reader.uint16();
+
+		modes.push({
+			brightness,
+			brightnessMax,
+			brightnessMin,
+			colourMode,
+			colours: readColours(reader, colourCount),
+			coloursMax,
+			coloursMin,
+			direction,
+			flags,
+			name,
+			speed,
+			speedMax,
+			speedMin,
+		});
+	}
+
+	return modes;
+}
+
+/**
+ * Reads the zone list from a packet body.
+ * @param reader Reader positioned at the zone count.
+ * @returns The parsed zones.
+ */
+function readZones(reader: PacketReader): RgbZone[] {
+	const count = reader.uint16();
+	const zones: RgbZone[] = [];
+
+	for (let index = 0; index < count; index++) {
+		const name = reader.string();
+		const type = reader.uint32();
+		const ledsMin = reader.uint32();
+		const ledsMax = reader.uint32();
+		const ledsCount = reader.uint32();
+		const matrix = readMatrixMap(reader);
+		const segments = readSegments(reader);
+		const flags = reader.uint32();
+		const activeMode = reader.uint32();
+		const modes = readModes(reader);
+		const displayName = reader.string();
+
+		zones.push({
+			activeMode,
+			displayName,
+			flags,
+			ledsCount,
+			ledsMax,
+			ledsMin,
+			matrix,
+			modes,
+			name,
+			segments,
+			type,
+		});
+	}
+
+	return zones;
+}
+
+/**
+ * Reads the segment list of a zone.
+ * @param reader Reader positioned at the segment count.
+ * @returns The parsed segments.
+ */
+function readSegments(reader: PacketReader): RgbSegment[] {
+	const count = reader.uint16();
+	const segments: RgbSegment[] = [];
+
+	for (let index = 0; index < count; index++) {
+		const name = reader.string();
+		const type = reader.uint32();
+		const startIndex = reader.uint32();
+		const ledCount = reader.uint32();
+		const matrix = readMatrixMap(reader);
+		const flags = reader.uint32();
+
+		segments.push({ flags, ledCount, matrix, name, startIndex, type });
+	}
+
+	return segments;
+}
+
+/**
+ * Reads a matrix map.
+ * @param reader Reader positioned at the matrix map length.
+ * @returns The matrix map, or null when the length is zero.
+ */
+function readMatrixMap(reader: PacketReader): RgbMatrixMap | null {
+	const length = reader.uint16();
+
+	if (length === 0) {
+		return null;
+	}
+
+	const start = reader.offset;
+	const height = reader.uint32();
+	const width = reader.uint32();
+	const valueCount = height * width;
+
+	if (!Number.isSafeInteger(valueCount) || 8 + valueCount * 4 !== length) {
+		throw new OpenRgbError(
+			"PROTOCOL_ERROR",
+			`Matrix map declares ${length} bytes, but ${height}x${width} needs ${8 + valueCount * 4}.`,
+		);
+	}
+
+	const data: number[] = [];
+
+	for (let index = 0; index < valueCount; index++) {
+		data.push(reader.uint32());
+	}
+
+	if (reader.offset - start !== length) {
+		throw new OpenRgbError("PROTOCOL_ERROR", "Matrix map length does not match its contents.");
+	}
+
+	return { data, height, width };
+}
+
+/**
+ * Reads a list of 32-bit colours.
+ * @param reader Reader positioned at the first colour.
+ * @param count Number of colours to read.
+ * @returns The decoded colours.
+ */
+function readColours(reader: PacketReader, count: number): RgbColour[] {
+	const colours: RgbColour[] = [];
+
+	for (let index = 0; index < count; index++) {
+		const bytes = reader.bytes(4);
+
+		colours.push({ blue: bytes.readUInt8(2), green: bytes.readUInt8(1), red: bytes.readUInt8(0) });
+	}
+
+	return colours;
+}
+
+/**
+ * Decodes a length-prefixed configuration string.
+ * @param buffer Configuration bytes, optionally null-terminated.
+ * @returns The configuration text.
+ */
+function decodeConfiguration(buffer: Buffer): string {
+	const end = buffer.length > 0 && buffer[buffer.length - 1] === 0 ? buffer.length - 1 : buffer.length;
+
+	return buffer.toString("utf8", 0, end);
+}
+
+/**
+ * Asserts that a colour channel fits in one byte.
+ * @param value Channel value.
+ * @param channel Channel name used in the error.
+ */
+function assertColourChannel(value: number, channel: string): void {
+	if (!Number.isInteger(value) || value < 0 || value > 255) {
+		throw new OpenRgbError("PROTOCOL_ERROR", `${channel} must be an integer between 0 and 255; received ${value}.`);
+	}
 }
 
 /**
