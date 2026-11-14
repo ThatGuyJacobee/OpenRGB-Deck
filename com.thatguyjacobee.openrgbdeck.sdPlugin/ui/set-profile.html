@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Set OpenRGB Profile</title>
+		<script src="sdpi-components.js"></script>
+		<style>
+			.status {
+				color: var(--font-color, #969696);
+				font-family: var(--font-family);
+				font-size: var(--font-size, 9pt);
+				line-height: 30px;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			.status[data-tone="ok"] {
+				color: #32d74b;
+			}
+
+			.status[data-tone="error"] {
+				color: #ff453a;
+			}
+		</style>
+	</head>
+	<body>
+		<sdpi-item label="Profile">
+			<sdpi-select
+				setting="profile"
+				datasource="getProfiles"
+				placeholder="Select a profile"
+				loading="Loading profiles…"
+				show-refresh
+				hot-reload
+			></sdpi-select>
+		</sdpi-item>
+
+		<sdpi-item label="Status">
+			<div id="status" class="status">Connecting…</div>
+		</sdpi-item>
+
+		<script>
+			const { streamDeckClient } = SDPIComponents;
+			const status = document.getElementById("status");
+
+			streamDeckClient.sendToPropertyInspector.subscribe(({ payload }) => {
+				if (payload?.event !== "status") {
+					return;
+				}
+
+				if (payload.state === "connected") {
+					status.textContent = payload.activeProfile
+						? `Connected · ${payload.activeProfile}`
+						: "Connected · no active profile";
+					status.dataset.tone = "ok";
+				} else if (["connecting", "handshaking", "reconnecting"].includes(payload.state)) {
+					status.textContent = "Connecting to OpenRGB…";
+					status.dataset.tone = "pending";
+				} else if (payload.state === "failed") {
+					status.textContent = "OpenRGB is too old (SDK 6 required)";
+					status.dataset.tone = "error";
+				} else {
+					status.textContent = "OpenRGB offline — is the SDK server enabled?";
+					status.dataset.tone = "error";
+				}
+			});
+
+			streamDeckClient.send("sendToPlugin", { event: "getStatus" });
+		</script>
+	</body>
+</html>

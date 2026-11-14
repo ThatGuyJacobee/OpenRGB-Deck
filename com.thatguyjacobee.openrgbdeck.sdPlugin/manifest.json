@@ -37,10 +37,15 @@
             "Controllers": ["Keypad"],
             "DisableAutomaticStates": true,
             "UserTitleEnabled": false,
+            "PropertyInspectorPath": "ui/set-profile.html",
             "SupportedInMultiActions": true,
             "States": [
                 {
                     "Image": "imgs/actions/set-profile/key",
+                    "TitleAlignment": "middle"
+                },
+                {
+                    "Image": "imgs/actions/set-profile/key-active",
                     "TitleAlignment": "middle"
                 }
             ]
