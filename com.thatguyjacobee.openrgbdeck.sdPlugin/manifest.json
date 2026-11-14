@@ -42,6 +42,10 @@
                 {
                     "Image": "imgs/actions/set-profile/key",
                     "TitleAlignment": "middle"
+                },
+                {
+                    "Image": "imgs/actions/set-profile/key-active",
+                    "TitleAlignment": "middle"
                 }
             ]
         },
