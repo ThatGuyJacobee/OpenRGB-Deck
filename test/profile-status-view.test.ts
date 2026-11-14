@@ -29,8 +29,8 @@ describe("nextProfile", () => {
 });
 
 describe("profileStatusTitle", () => {
-	it("shows the active profile", () => {
-		expect(profileStatusTitle("RGB-Zoned", 2, true, "connected")).toBe("RGB-Zoned");
+	it("shows the active profile with a label", () => {
+		expect(profileStatusTitle("RGB-Zoned", 2, true, "connected")).toBe("Active:\nRGB-Zoned");
 	});
 
 	it("shows that no profile is active", () => {

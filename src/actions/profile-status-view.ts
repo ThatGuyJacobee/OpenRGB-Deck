@@ -46,5 +46,9 @@ export function profileStatusTitle(
 		return "No profiles";
 	}
 
-	return activeProfile ?? "No profile";
+	if (activeProfile === null) {
+		return "No profile";
+	}
+
+	return `Active:\n${activeProfile}`;
 }
