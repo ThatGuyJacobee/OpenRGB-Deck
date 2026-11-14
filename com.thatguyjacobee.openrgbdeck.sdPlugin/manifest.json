@@ -51,7 +51,7 @@
             ]
         },
         {
-            "Name": "OpenRGB Profile",
+            "Name": "OpenRGB Profile Status",
             "UUID": "com.thatguyjacobee.openrgbdeck.profile",
             "Icon": "imgs/actions/profile-status/icon",
             "Tooltip": "Shows the active OpenRGB profile. Press to load the next profile.",
