@@ -73,6 +73,7 @@
             "Controllers": ["Keypad"],
             "DisableAutomaticStates": true,
             "UserTitleEnabled": false,
+            "PropertyInspectorPath": "ui/set-colour.html",
             "SupportedInMultiActions": true,
             "States": [
                 {

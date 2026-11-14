@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Set OpenRGB Colour</title>
+		<script src="sdpi-components.js"></script>
+		<link rel="stylesheet" href="inspector.css" />
+	</head>
+	<body>
+		<sdpi-item label="Colour">
+			<sdpi-color setting="colour" default="#ffffff"></sdpi-color>
+		</sdpi-item>
+
+		<sdpi-item label="Scope">
+			<div class="hint">Applies to every OpenRGB device.</div>
+		</sdpi-item>
+
+		<sdpi-item label="Status">
+			<div id="status" class="status">Connecting…</div>
+		</sdpi-item>
+
+		<script src="inspector.js"></script>
+	</body>
+</html>
