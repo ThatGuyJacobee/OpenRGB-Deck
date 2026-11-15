@@ -5,7 +5,7 @@
     "Version": "0.1.0.0",
     "SDKVersion": 3,
     "Author": "ThatGuyJacobee",
-    "Description": "OpenRGB profile control for Elgato Stream Deck - unofficial, free and open source",
+    "Description": "Elgato Stream Deck plugin for controlling OpenRGB devices and profiles - unofficial, free and open source",
     "Category": "OpenRGB Deck",
     "CategoryIcon": "imgs/plugin/category-icon",
     "Icon": "imgs/plugin/icon",
