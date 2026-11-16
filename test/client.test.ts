@@ -290,6 +290,8 @@ describe("profiles", () => {
 		client.start();
 
 		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		// Wait for the initial profile refresh so it cannot race the push.
+		await vi.waitFor(() => expect(client.activeProfile).toBe("Fake Profile"), WAIT);
 
 		const changed = new Promise<string | null>((resolve) => {
 			client.once("activeProfile", resolve);
@@ -308,6 +310,8 @@ describe("profiles", () => {
 		client.start();
 
 		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		// Wait for the initial profile refresh so it cannot race the push.
+		await vi.waitFor(() => expect(client.profiles).toEqual(["Fake Profile"]), WAIT);
 
 		const changed = new Promise<string[]>((resolve) => {
 			client.once("profiles", resolve);
