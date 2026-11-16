@@ -134,8 +134,13 @@ Restart Stream Deck after installing or updating the plugin.
 ### Something else
 
 Open an [issue](https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues/new) with
-your Stream Deck version, OpenRGB version and the plugin log (usually in the
-plugin's `logs` folder, under AppData on Windows).
+your Stream Deck version, OpenRGB version and the newest file from the plugin's
+`logs` folder:
+
+- **Windows:**
+  `%APPDATA%\Elgato\StreamDeck\Plugins\com.thatguyjacobee.openrgbdeck.sdPlugin\logs`
+- **macOS:**
+  `~/Library/Application Support/com.elgato.StreamDeck/Plugins/com.thatguyjacobee.openrgbdeck.sdPlugin/logs`
 
 ## Roadmap 🗺️
 

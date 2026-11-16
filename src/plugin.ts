@@ -5,8 +5,8 @@ import { SetColour } from "./actions/set-colour";
 import { SetProfile } from "./actions/set-profile";
 import { startOpenRgb } from "./service";
 
-// Logs every message exchanged with Stream Deck; useful while the plugin is still a skeleton.
-streamDeck.logger.setLevel("debug");
+// Keep the log focused on connections and errors in release builds.
+streamDeck.logger.setLevel("info");
 
 streamDeck.actions.registerAction(new SetProfile());
 streamDeck.actions.registerAction(new ProfileStatus());
