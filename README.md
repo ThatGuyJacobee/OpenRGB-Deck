@@ -19,6 +19,7 @@ appreciated! ❤️
 - Give colour keys an optional title, such as "Desk" or "Warm".
 - Follow profile changes made in the OpenRGB GUI.
 - Reconnect automatically after OpenRGB restarts.
+- Connect to an OpenRGB server on another machine or port.
 - Free, local and open source; no account, telemetry or cloud service.
 
 ## Installation 🔌
@@ -27,7 +28,7 @@ appreciated! ❤️
 
 - [Stream Deck](https://www.elgato.com/stream-deck) 7.1 or newer.
 - [OpenRGB](https://openrgb.org/) 1.0 or newer with the SDK server enabled
-  (protocol 6).
+  (protocol 6) and reachable from the machine running Stream Deck.
 - At least one saved profile in OpenRGB for the profile actions.
 - Windows 10/11 or macOS 12+. Windows is tested; macOS support has not been verified yet ([#8](https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues/8)).
 
@@ -43,13 +44,31 @@ appreciated! ❤️
 4. Add the actions to your deck and configure them to your liking!
 
 > [!IMPORTANT]
-> The SDK server must be running before the plugin can connect. v0.1 connects to
-> `127.0.0.1:6742` only; configurable host and port settings are tracked in
-> [#4](https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues/4).
+> The SDK server must be running before the plugin can connect. The default address
+> is `127.0.0.1:6742`; if OpenRGB runs on another machine or port, see
+> [Connect to OpenRGB on another machine](#connect-to-openrgb-on-another-machine).
 
 > [!TIP]
 > Save at least one profile in OpenRGB before using the profile actions. The
 > plugin can switch profiles, but it does not create them.
+
+#### Connect to OpenRGB on another machine
+
+By default the plugin connects to `127.0.0.1:6742`. To use an OpenRGB server on another machine:
+
+1. In OpenRGB, set the SDK server host to an address the Stream Deck machine can reach
+   (**Settings → SDK Server**, or `--server-host`) and allow TCP 6742 through its
+   firewall. If OpenRGB only listens on localhost, remote connections are refused.
+2. Select any OpenRGB Deck key in Stream Deck, select **Plugin settings** at the top
+   of the inspector, and enter the machine's LAN or Tailscale address and port.
+3. Press **Back**. Every OpenRGB Deck key now uses the new connection.
+
+> [!WARNING]
+> The OpenRGB SDK has no authentication or encryption. Only expose port 6742 on a
+> trusted network or VPN such as Tailscale, and never forward it from the internet.
+
+You can check the address before opening Stream Deck with
+`npm run probe -- --host <address> --port <port>`.
 
 #### Build from source
 
@@ -76,6 +95,13 @@ Useful commands:
 
 ## Actions 🎛️
 
+### Plugin settings
+
+Every OpenRGB Deck key has a **Plugin settings** row at the top of its inspector.
+It opens the plugin-wide settings; the first section is the OpenRGB connection
+shared by all keys. Changes apply to every OpenRGB Deck key, not just the one you
+opened it from.
+
 ### Set OpenRGB Profile
 
 Pick one of your saved profiles in the inspector and press the key to load it.
@@ -100,17 +126,17 @@ Press it to switch every OpenRGB controller to Direct mode and set all of its
 LEDs to the colour. You can give the key an optional title in the inspector if
 you want a label over the swatch.
 
-In v0.1 the colour applies to every controller. Targeting individual devices is
-tracked in [#5](https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues/5).
+The colour applies to every controller. Targeting individual devices is tracked in
+[#5](https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues/5).
 
 ## Troubleshooting 🩺
 
 ### The key says `OpenRGB offline`
 
 Start the SDK server in OpenRGB: **Settings → SDK Server → Start Server**. The
-default address is `127.0.0.1:6742`. If OpenRGB is running on another machine or
-port, v0.1 cannot connect yet; see
-[#4](https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues/4).
+default address is `127.0.0.1:6742`; check the host and port in **Plugin settings**
+on any OpenRGB Deck key. If OpenRGB is on another machine, make sure its server host
+and firewall allow the connection.
 
 ### The key says `OpenRGB too old`
 
@@ -146,7 +172,6 @@ your Stream Deck version, OpenRGB version and the newest file from the plugin's
 
 Planned work is tracked in the issue tracker:
 
-- [Configurable OpenRGB host and port](https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues/4)
 - [Per-device colour targeting](https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues/5)
 - [Previous-profile option for the status key](https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues/6)
 - [Stream Deck+ dial and encoder support](https://github.com/ThatGuyJacobee/OpenRGB-Deck/issues/7)
