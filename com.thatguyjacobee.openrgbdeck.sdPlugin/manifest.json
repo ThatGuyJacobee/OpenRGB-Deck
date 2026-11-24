@@ -2,7 +2,7 @@
     "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
     "UUID": "com.thatguyjacobee.openrgbdeck",
     "Name": "OpenRGB Deck",
-    "Version": "0.1.0.0",
+    "Version": "0.2.0.0",
     "SDKVersion": 3,
     "Author": "ThatGuyJacobee",
     "Description": "Elgato Stream Deck plugin for controlling OpenRGB devices and profiles - unofficial, free and open source",

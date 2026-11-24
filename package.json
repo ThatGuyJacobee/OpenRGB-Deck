@@ -1,6 +1,6 @@
 {
     "name": "openrgb-deck",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Elgato Stream Deck plugin for controlling OpenRGB devices and profiles",
     "private": true,
     "type": "module",
