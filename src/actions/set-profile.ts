@@ -49,21 +49,16 @@ export class SetProfile extends SingletonAction<SetProfileSettings> {
 
 		openRgb.on("activeProfile", () => {
 			void this.#refreshKeys();
-			void sendInspectorStatus();
 		});
 
 		openRgb.on("profiles", () => {
 			void this.#refreshKeys();
 			void this.#sendProfiles();
-			void sendInspectorStatus();
 		});
 
 		openRgb.on("stateChanged", () => {
 			void this.#refreshKeys();
-			void sendInspectorStatus();
 		});
-
-		openRgb.on("serverName", () => void sendInspectorStatus());
 	}
 
 	/**

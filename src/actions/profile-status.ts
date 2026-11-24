@@ -1,8 +1,17 @@
-import streamDeck, { action, type KeyDownEvent, SingletonAction } from "@elgato/streamdeck";
+import streamDeck, { action, type KeyDownEvent, type SendToPluginEvent, SingletonAction } from "@elgato/streamdeck";
 
 import { errorMessage } from "../errors";
 import { openRgb } from "../service";
+import { sendInspectorStatus } from "./inspector-status";
 import { nextProfile, profileStatusTitle } from "./profile-status-view";
+
+/**
+ * Requests the property inspector can send to the plugin.
+ */
+type InspectorRequest = {
+	/** Request identifier. */
+	event?: string;
+};
 
 /**
  * Shows the active OpenRGB profile and loads the next one when pressed.
@@ -49,6 +58,22 @@ export class ProfileStatus extends SingletonAction {
 			await ev.action.showAlert();
 		} finally {
 			this.#loading.delete(ev.action.id);
+		}
+	}
+
+	/**
+	 * Answers the property inspector's status request.
+	 * @param ev The message from the property inspector.
+	 */
+	public override async onSendToPlugin(
+		ev: SendToPluginEvent<InspectorRequest, Record<string, never>>,
+	): Promise<void> {
+		if (typeof ev.payload !== "object" || ev.payload === null) {
+			return;
+		}
+
+		if (ev.payload.event === "getStatus") {
+			await sendInspectorStatus();
 		}
 	}
 
