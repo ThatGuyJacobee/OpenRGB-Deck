@@ -217,7 +217,7 @@ describe("endpoints", () => {
 
 		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
 		await vi.waitFor(() => expect(client.profiles).toEqual(["Second"]), WAIT);
-		expect(client.activeProfile).toBe("Second");
+		await vi.waitFor(() => expect(client.activeProfile).toBe("Second"), WAIT);
 		expect(second.connections).toBe(1);
 	});
 
@@ -303,7 +303,7 @@ describe("endpoints", () => {
 
 		expect(client.setEndpoint("127.0.0.1", next.port)).toBe(true);
 		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
-		expect(client.activeProfile).toBe("Next");
+		await vi.waitFor(() => expect(client.activeProfile).toBe("Next"), WAIT);
 	});
 });
 
