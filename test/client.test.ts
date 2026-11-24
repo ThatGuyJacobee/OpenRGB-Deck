@@ -202,6 +202,111 @@ describe("reconnect", () => {
 	});
 });
 
+describe("endpoints", () => {
+	it("switches to a new server", async () => {
+		const first = await startServer({ activeProfile: "First", profiles: ["First"] });
+		const second = await startServer({ activeProfile: "Second", profiles: ["Second"] });
+		const client = createClient(first);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		await vi.waitFor(() => expect(client.profiles).toEqual(["First"]), WAIT);
+
+		expect(client.setEndpoint("127.0.0.1", second.port)).toBe(true);
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		await vi.waitFor(() => expect(client.profiles).toEqual(["Second"]), WAIT);
+		expect(client.activeProfile).toBe("Second");
+		expect(second.connections).toBe(1);
+	});
+
+	it("clears state from the previous server", async () => {
+		const first = await startServer({
+			activeProfile: "First",
+			controllers: [{ id: 1, ledCount: 1, name: "One" }],
+			profiles: ["First"],
+		});
+		const second = await startServer({ activeProfile: "Second", profiles: ["Second"] });
+		const client = createClient(first);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.controllers).toHaveLength(1), WAIT);
+		await vi.waitFor(() => expect(client.activeProfile).toBe("First"), WAIT);
+
+		client.setEndpoint("127.0.0.1", second.port);
+
+		expect(client.profiles).toEqual([]);
+		expect(client.activeProfile).toBeNull();
+		expect(client.controllers).toEqual([]);
+	});
+
+	it("ignores the current endpoint", async () => {
+		const server = await startServer();
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		expect(client.setEndpoint("127.0.0.1", server.port)).toBe(false);
+		expect(client.host).toBe("127.0.0.1");
+		expect(client.port).toBe(server.port);
+		expect(client.state).toBe("connected");
+		expect(server.connections).toBe(1);
+	});
+
+	it("rejects an invalid port without changing the endpoint", async () => {
+		const server = await startServer();
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		expect(() => client.setEndpoint("127.0.0.1", 0)).toThrow(RangeError);
+		expect(client.port).toBe(server.port);
+		expect(client.state).toBe("connected");
+	});
+
+	it("rejects an empty host without changing the endpoint", async () => {
+		const server = await startServer();
+		const client = createClient(server);
+
+		client.start();
+
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		expect(() => client.setEndpoint("  ", server.port)).toThrow(RangeError);
+		expect(client.host).toBe("127.0.0.1");
+		expect(client.port).toBe(server.port);
+		expect(client.state).toBe("connected");
+	});
+
+	it("changes the endpoint before the client starts", async () => {
+		const client = createClient(await startServer());
+
+		expect(client.setEndpoint("127.0.0.1", 6743)).toBe(true);
+		expect(client.host).toBe("127.0.0.1");
+		expect(client.port).toBe(6743);
+		expect(client.state).toBe("idle");
+	});
+
+	it("recovers from a failed handshake", async () => {
+		const old = await startServer({ protocolVersion: 5 });
+		const next = await startServer({ activeProfile: "Next", profiles: ["Next"] });
+		const client = createClient(old);
+		const error = nextError(client);
+
+		client.start();
+
+		expect((await error).code).toBe("PROTOCOL_TOO_OLD");
+		await vi.waitFor(() => expect(client.state).toBe("failed"), WAIT);
+
+		expect(client.setEndpoint("127.0.0.1", next.port)).toBe(true);
+		await vi.waitFor(() => expect(client.state).toBe("connected"), WAIT);
+		expect(client.activeProfile).toBe("Next");
+	});
+});
+
 describe("profiles", () => {
 	it("lists profiles and reports the active profile", async () => {
 		const server = await startServer({ activeProfile: "Gaming", profiles: ["Gaming", "Żółw 🎮"] });

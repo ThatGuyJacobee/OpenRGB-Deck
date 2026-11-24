@@ -99,7 +99,7 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	#generation = 0;
 
 	/** Hostname or IP address of the server. */
-	readonly #host: string;
+	#host: string;
 
 	/** Timeout for profile loads, in milliseconds. */
 	readonly #loadProfileTimeoutMs: number;
@@ -114,7 +114,7 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	readonly #pending = new Map<string, PendingRequest>();
 
 	/** TCP port of the server. */
-	readonly #port: number;
+	#port: number;
 
 	/** Profiles reported by the server. */
 	#profiles: string[] = [];
@@ -156,7 +156,7 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	constructor(options: OpenRgbClientOptions = {}) {
 		super();
 
-		this.#host = options.host ?? DEFAULT_HOST;
+		this.#host = normaliseHost(options.host ?? DEFAULT_HOST);
 		this.#port = options.port ?? DEFAULT_PORT;
 		this.#clientName = options.clientName ?? DEFAULT_CLIENT_NAME;
 		this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -165,9 +165,7 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 		this.#maxPacketSize = options.maxPacketSize ?? MAX_PACKET_SIZE;
 		this.#logger = options.logger ?? NOOP_LOGGER;
 
-		if (!Number.isInteger(this.#port) || this.#port < 1 || this.#port > 65535) {
-			throw new RangeError(`Port must be an integer between 1 and 65535; received ${this.#port}.`);
-		}
+		assertPort(this.#port);
 	}
 
 	/** Currently active profile, or null when none is active. */
@@ -183,6 +181,16 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 	/** Controllers reported by the server. */
 	public get controllers(): readonly RgbController[] {
 		return this.#controllers;
+	}
+
+	/** Hostname or IP address of the server. */
+	public get host(): string {
+		return this.#host;
+	}
+
+	/** TCP port of the server. */
+	public get port(): number {
+		return this.#port;
 	}
 
 	/** Profiles reported by the server. */
@@ -328,6 +336,42 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 			encodeUpdateLeds(colours),
 			this.#requestTimeoutMs,
 		);
+	}
+
+	/**
+	 * Changes the server this client connects to.
+	 *
+	 * When the client is running, it stops the current connection, clears the
+	 * state belonging to the previous server and reconnects.
+	 * @param host Hostname or IP address of the new server.
+	 * @param port TCP port of the new server.
+	 * @returns True when the endpoint changed.
+	 */
+	public setEndpoint(host: string, port: number): boolean {
+		const nextHost = normaliseHost(host);
+
+		assertPort(port);
+
+		if (nextHost === this.#host && port === this.#port) {
+			return false;
+		}
+
+		const wasRunning = this.#state !== "idle" && this.#state !== "stopped";
+
+		this.#host = nextHost;
+		this.#port = port;
+
+		if (wasRunning) {
+			this.stop();
+		}
+
+		this.#resetServerState();
+
+		if (wasRunning) {
+			this.start();
+		}
+
+		return true;
 	}
 
 	/**
@@ -594,6 +638,18 @@ export class OpenRgbClient extends EventEmitter<OpenRgbEventMap> {
 
 			this.#logger.warn(`Could not refresh OpenRGB controllers: ${toOpenRgbError(error).message}`);
 		}
+	}
+
+	/**
+	 * Clears everything learned from the previous server.
+	 */
+	#resetServerState(): void {
+		this.#serverName = "";
+		this.#protocolVersion = 0;
+		this.#serverFlags = 0;
+		this.#setActiveProfile(null);
+		this.#setProfiles([]);
+		this.#setControllers([]);
 	}
 
 	/**
@@ -950,6 +1006,37 @@ function sameControllers(left: readonly RgbController[], right: readonly RgbCont
 			controller.zones.length === other.zones.length
 		);
 	});
+}
+
+/**
+ * Trims a host and checks that it can be handed to the socket layer.
+ * @param host Hostname or IP address.
+ * @returns The trimmed host.
+ * @throws {RangeError} When the host is empty or contains whitespace.
+ */
+function normaliseHost(host: string): string {
+	const trimmed = host.trim();
+
+	if (trimmed.length === 0) {
+		throw new RangeError("Host cannot be empty.");
+	}
+
+	if (/\s/.test(trimmed)) {
+		throw new RangeError(`Host cannot contain spaces; received "${host}".`);
+	}
+
+	return trimmed;
+}
+
+/**
+ * Checks that a port can be used for a TCP connection.
+ * @param port Port number.
+ * @throws {RangeError} When the port is not an integer between 1 and 65535.
+ */
+function assertPort(port: number): void {
+	if (!Number.isInteger(port) || port < 1 || port > 65535) {
+		throw new RangeError(`Port must be an integer between 1 and 65535; received ${port}.`);
+	}
 }
 
 /**
